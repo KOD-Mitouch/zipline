@@ -26,20 +26,42 @@ def sentinel(name, doc=None):
         if doc == value.__doc__:
             return value
 
+        if value._created_at is None:
+            created_at = '<unknown>'
+        else:
+            created_at = '%s:%s' % value._created_at
+
         raise ValueError(dedent(
             """\
             New sentinel value %r conflicts with an existing sentinel of the
             same name.
             Old sentinel docstring: %r
             New sentinel docstring: %r
+
+            The old sentinel was created at: %s
+
             Resolve this conflict by changing the name of one of the sentinels.
             """,
-        ) % (name, value.__doc__, doc))
+        ) % (name, value.__doc__, doc, created_at))
+
+    try:
+        frame = sys._getframe(1)
+    except ValueError:
+        frame = None
+
+    if frame is None:
+        created_at = None
+    else:
+        created_at = frame.f_code.co_filename, frame.f_lineno
 
     @object.__new__   # bind a single instance to the name 'Sentinel'
     class Sentinel(_Sentinel):
         __doc__ = doc
         __name__ = name
+
+        # store created_at so that we can report this in case of a duplicate
+        # name violation
+        _created_at = created_at
 
         def __new__(cls):
             raise TypeError('cannot create %r instances' % name)
@@ -58,9 +80,8 @@ def sentinel(name, doc=None):
 
     cls = type(Sentinel)
     try:
-        # traverse up one frame to find the module where this is defined
-        cls.__module__ = sys._getframe(1).f_globals['__name__']
-    except (ValueError, KeyError):
+        cls.__module__ = frame.f_globals['__name__']
+    except KeyError:
         # Couldn't get the name from the calling scope, just use None.
         cls.__module__ = None
 
